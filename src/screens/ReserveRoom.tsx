@@ -13,7 +13,7 @@ import type {
 import { format, addDays, startOfWeek, addWeeks, subWeeks, isSameDay, isWeekend, isSameWeek, isBefore, isAfter } from 'date-fns';
 import ReservationPopup from '../components/ReservationPopup';
 import ReservationEditPopup from '../components/ReservationEditPopup';
-import { saveReservation, getReservations, deleteReservation, clearAllReservations } from '../data/reservationStorage';
+import { saveReservation, getReservations, deleteReservation } from '../data/reservationStorage';
 import type { Reservation } from '../types/reservation';
 
 // Constants
@@ -268,16 +268,6 @@ const ReserveRoom = () => {
   const handleCloseEditPopup = () => {
     setShowEditPopup(false);
     setSelectedReservation(null);
-  };
-
-  const handleClearAllReservations = async () => {
-    const success = await clearAllReservations();
-    if (success) {
-      // Reload sample data
-      const freshReservations = await getReservations();
-      setReservations(freshReservations);
-      alert('All reservations have been reset to default sample data.');
-    }
   };
 
   const getReservationStyle = (reservation: Reservation) => {
@@ -542,42 +532,30 @@ const ReserveRoom = () => {
       <View style={styles.container}>
         <View style={styles.topBar}>
           <Text style={styles.dateRangeText}>
-            {format(weekStart, 'MMMM').toUpperCase()} {format(weekStart, 'd')}-
-            {format(addDays(weekStart, 6), 'd')}
+            {format(weekStart, 'M월 d일')} - {format(addDays(weekStart, 4), 'M월 d일')}
           </Text>
           <View style={styles.topBarButtons}>
-            <TouchableOpacity 
-              style={styles.navButton} 
-              onPress={goToPreviousWeek}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
+            <TouchableOpacity style={styles.navButton} onPress={goToPreviousWeek}>
               <Text style={styles.navButtonText}>{'<'}</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[
                 styles.todayButton,
-                !isSameWeek(new Date(), weekStart) && styles.todayButtonActive
+                isSameWeek(new Date(), weekStart, { weekStartsOn: 1 }) && styles.todayButtonActive
               ]} 
               onPress={goToToday}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={[
-                styles.todayButtonText,
-                !isSameWeek(new Date(), weekStart) && styles.todayButtonTextActive
-              ]}>T</Text>
+              <Text 
+                style={[
+                  styles.todayButtonText,
+                  isSameWeek(new Date(), weekStart, { weekStartsOn: 1 }) && styles.todayButtonTextActive
+                ]}
+              >
+                Today
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.navButton} 
-              onPress={goToNextWeek}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
+            <TouchableOpacity style={styles.navButton} onPress={goToNextWeek}>
               <Text style={styles.navButtonText}>{'>'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.resetButton} 
-              onPress={handleClearAllReservations}
-            >
-              <Text style={styles.resetButtonText}>Reset</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -923,20 +901,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 1,
-  },
-  resetButton: {
-    padding: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f8d7da',
-    borderRadius: 8,
-    marginLeft: 16,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resetButtonText: {
-    fontWeight: 'bold',
-    color: '#721c24',
   },
 });
 
