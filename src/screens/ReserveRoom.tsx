@@ -13,7 +13,7 @@ import type {
 import { format, addDays, startOfWeek, addWeeks, subWeeks, isSameDay, isWeekend, isSameWeek, isBefore, isAfter } from 'date-fns';
 import ReservationPopup from '../components/ReservationPopup';
 import ReservationEditPopup from '../components/ReservationEditPopup';
-import { saveReservation, getReservations, deleteReservation } from '../data/reservationStorage';
+import { saveReservation, getReservations, deleteReservation, clearAllReservations } from '../data/reservationStorage';
 import type { Reservation } from '../types/reservation';
 
 // Constants
@@ -28,6 +28,7 @@ interface SelectedSlot {
   dayIndex: number;
   date: Date;
   duration: number;
+  name?: string;
 }
 
 const ReserveRoom = () => {
@@ -202,17 +203,48 @@ const ReserveRoom = () => {
   const handleSaveReservation = async (name: string, duration: number) => {
     if (!selectedSlot) return;
 
-    const newReservation: Reservation = {
-      id: `${selectedSlot.date.getTime()}-${selectedSlot.hour}-${selectedSlot.minute}`,
-      date: selectedSlot.date,
-      hour: selectedSlot.hour,
-      minute: selectedSlot.minute,
-      duration,
-      name,
-    };
+    // Check if there's already a reservation at this time
+    const existingReservation = reservations.find(res => 
+      isSameDay(res.date, selectedSlot.date) &&
+      res.hour === selectedSlot.hour &&
+      res.minute === selectedSlot.minute
+    );
 
-    await saveReservation(newReservation);
-    setReservations(prev => [...prev, newReservation]);
+    if (existingReservation) {
+      // If it's the same reservation being edited, update it
+      if (selectedSlot.name === existingReservation.name) {
+        const updatedReservation: Reservation = {
+          ...existingReservation,
+          duration,
+          name,
+        };
+        await saveReservation(updatedReservation);
+        setReservations(prev => prev.map(res => 
+          res.id === existingReservation.id ? updatedReservation : res
+        ));
+      } else {
+        // If it's a different reservation, show an error or handle accordingly
+        console.warn('A reservation already exists at this time');
+        return;
+      }
+    } else {
+      // Create a new reservation and let the storage service handle ID generation
+      const newReservation: Reservation = {
+        id: '', // This will be set by the storage service
+        date: selectedSlot.date,
+        hour: selectedSlot.hour,
+        minute: selectedSlot.minute,
+        duration,
+        name,
+      };
+
+      await saveReservation(newReservation);
+      
+      // Reload all reservations to ensure we have the correct ID
+      const updatedReservations = await getReservations();
+      setReservations(updatedReservations);
+    }
+
     handleClosePopup();
   };
 
@@ -227,7 +259,8 @@ const ReserveRoom = () => {
       minute: reservation.minute,
       dayIndex: reservation.date.getDay() - 1, // Convert to 0-based index (Monday = 0)
       date: reservation.date,
-      duration: reservation.duration
+      duration: reservation.duration,
+      name: reservation.name
     });
     setShowReservationPopup(true);
   };
@@ -235,6 +268,16 @@ const ReserveRoom = () => {
   const handleCloseEditPopup = () => {
     setShowEditPopup(false);
     setSelectedReservation(null);
+  };
+
+  const handleClearAllReservations = async () => {
+    const success = await clearAllReservations();
+    if (success) {
+      // Reload sample data
+      const freshReservations = await getReservations();
+      setReservations(freshReservations);
+      alert('All reservations have been reset to default sample data.');
+    }
   };
 
   const getReservationStyle = (reservation: Reservation) => {
@@ -253,6 +296,59 @@ const ReserveRoom = () => {
     }
   };
 
+  const getReservationTextStyle = (reservation: Reservation) => {
+    const reservationStart = new Date(reservation.date);
+    reservationStart.setHours(reservation.hour, reservation.minute);
+    
+    const reservationEnd = new Date(reservationStart);
+    reservationEnd.setMinutes(reservationEnd.getMinutes() + reservation.duration);
+
+    const isCurrent = isBefore(reservationStart, currentTime) && isAfter(reservationEnd, currentTime);
+
+    return [
+      styles.reservationText,
+      isCurrent && styles.currentReservationText
+    ];
+  };
+
+  const getReservationTimeStyle = (reservation: Reservation) => {
+    const reservationStart = new Date(reservation.date);
+    reservationStart.setHours(reservation.hour, reservation.minute);
+    
+    const reservationEnd = new Date(reservationStart);
+    reservationEnd.setMinutes(reservationEnd.getMinutes() + reservation.duration);
+
+    const isCurrent = isBefore(reservationStart, currentTime) && isAfter(reservationEnd, currentTime);
+
+    return [
+      styles.reservationTimeText,
+      isCurrent && styles.currentReservationTimeText
+    ];
+  };
+
+  const formatTime = (date: Date) => {
+    return `${date.getHours()}:${date.getMinutes() === 0 ? '00' : '30'}`;
+  };
+
+  const renderReservationContent = (reservation: Reservation) => {
+    const reservationStart = new Date(reservation.date);
+    reservationStart.setHours(reservation.hour, reservation.minute);
+    
+    const reservationEnd = new Date(reservationStart);
+    reservationEnd.setMinutes(reservationEnd.getMinutes() + reservation.duration);
+
+    return (
+      <View>
+        <Text style={getReservationTextStyle(reservation)}>{reservation.name}</Text>
+        {reservation.duration >= 60 && (
+          <Text style={getReservationTimeStyle(reservation)}>
+            {formatTime(reservationStart)} - {formatTime(reservationEnd)}
+          </Text>
+        )}
+      </View>
+    );
+  };
+
   const renderTimeGrid = () => {
     const hours = [];
     for (let i = 8; i <= 20; i++) {
@@ -261,10 +357,16 @@ const ReserveRoom = () => {
         <View key={`hour-${i}`} style={styles.timeGridRow}>
           {Array(5).fill(null).map((_, dayIndex) => {
             const day = addDays(weekStart, dayIndex);
+            // Remove duplicate reservations by checking IDs
             const reservationsForSlot = reservations.filter(res => 
               isSameDay(res.date, day) && 
               res.hour === i && 
               res.minute === 0
+            );
+            
+            // Ensure unique IDs
+            const uniqueReservations = Array.from(
+              new Map(reservationsForSlot.map(r => [r.id, r])).values()
             );
 
             return (
@@ -273,7 +375,7 @@ const ReserveRoom = () => {
                 style={styles.timeGridSlot}
               >
                 <View style={styles.timeGridSlotContent}>
-                  {reservationsForSlot.map(reservation => (
+                  {uniqueReservations.map(reservation => (
                     <TouchableOpacity
                       key={reservation.id}
                       style={[
@@ -290,7 +392,7 @@ const ReserveRoom = () => {
                       )}
                       activeOpacity={0.6}
                     >
-                      <Text style={styles.reservationText}>{reservation.name}</Text>
+                      {renderReservationContent(reservation)}
                     </TouchableOpacity>
                   ))}
                   {selectedSlot?.hour === i && 
@@ -334,10 +436,16 @@ const ReserveRoom = () => {
         <View key={`half-hour-${i}`} style={styles.timeGridRow}>
           {Array(5).fill(null).map((_, dayIndex) => {
             const day = addDays(weekStart, dayIndex);
+            // Remove duplicate reservations by checking IDs
             const reservationsForSlot = reservations.filter(res => 
               isSameDay(res.date, day) && 
               res.hour === i && 
               res.minute === 30
+            );
+            
+            // Ensure unique IDs
+            const uniqueReservations = Array.from(
+              new Map(reservationsForSlot.map(r => [r.id, r])).values()
             );
 
             return (
@@ -346,7 +454,7 @@ const ReserveRoom = () => {
                 style={styles.timeGridSlot}
               >
                 <View style={styles.timeGridSlotContent}>
-                  {reservationsForSlot.map(reservation => (
+                  {uniqueReservations.map(reservation => (
                     <TouchableOpacity
                       key={reservation.id}
                       style={[
@@ -363,7 +471,7 @@ const ReserveRoom = () => {
                       )}
                       activeOpacity={0.6}
                     >
-                      <Text style={styles.reservationText}>{reservation.name}</Text>
+                      {renderReservationContent(reservation)}
                     </TouchableOpacity>
                   ))}
                   {selectedSlot?.hour === i && 
@@ -464,6 +572,12 @@ const ReserveRoom = () => {
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.navButtonText}>{'>'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.resetButton} 
+              onPress={handleClearAllReservations}
+            >
+              <Text style={styles.resetButtonText}>Reset</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -773,21 +887,34 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   reservationText: {
-    fontSize: 12,
+    fontSize: 16,
     color: '#333',
     textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  currentReservationText: {
+    color: 'white',
+  },
+  reservationTimeText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  currentReservationTimeText: {
+    color: 'rgba(255, 255, 255, 0.8)',
   },
   pastReservation: {
     backgroundColor: '#f0f0f0',
-    borderColor: '#999',
+    borderColor: 'rgba(102, 102, 102, 0.3)',
   },
   currentReservation: {
-    backgroundColor: '#e6f5e6',
-    borderColor: '#4CAF50',
+    backgroundColor: '#4e5bf2',
+    borderColor: '#4e5bf2',
   },
   futureReservation: {
     backgroundColor: '#e6e9ff',
-    borderColor: '#4e5bf2',
+    borderColor: 'rgba(78, 91, 242, 0.3)',
   },
   emptySlotTouchable: {
     position: 'absolute',
@@ -796,6 +923,20 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 1,
+  },
+  resetButton: {
+    padding: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f8d7da',
+    borderRadius: 8,
+    marginLeft: 16,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resetButtonText: {
+    fontWeight: 'bold',
+    color: '#721c24',
   },
 });
 

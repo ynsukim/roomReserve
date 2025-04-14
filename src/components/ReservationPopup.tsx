@@ -265,14 +265,13 @@ const ReservationPopup: React.FC<ReservationPopupProps> = ({
                     name ? styles.popupTextInputActive : null
                   ]}
                   placeholder="이름을 입력해주세요"
-                  placeholderTextColor="#ADD8E6"
+                  placeholderTextColor="gray"
                   returnKeyType="done"
                   keyboardType="default"
                   textContentType="name"
                   autoCapitalize="none"
                   value={name}
                   onChangeText={setName}
-                  underlineColorAndroid="transparent"
                 />
               </View>
             </View>
@@ -428,13 +427,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     textAlign: 'right',
     paddingRight: 50,
-    color: '#ADD8E6',
-    fontSize: 18,
+    color: 'blue',
   },
   popupTextInputActive: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: 'black',
   },
   popupFooter: {
     width: '100%',
