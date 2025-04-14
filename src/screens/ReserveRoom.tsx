@@ -10,12 +10,17 @@ import {
 import type {
   ScrollView as ScrollViewType,
 } from 'react-native';
-import { format, addDays, startOfWeek, addWeeks, subWeeks, isSameDay, isWeekend, isSameWeek } from 'date-fns';
+import { format, addDays, startOfWeek, addWeeks, subWeeks, isSameDay, isWeekend, isSameWeek, isBefore, isAfter } from 'date-fns';
 import ReservationPopup from '../components/ReservationPopup';
+import ReservationEditPopup from '../components/ReservationEditPopup';
+import { saveReservation, getReservations, deleteReservation } from '../data/reservationStorage';
+import type { Reservation } from '../types/reservation';
 
 // Constants
 const TIME_GRID_HEIGHT = 30;
 const SCROLL_VIEW_HEIGHT = 500;
+const MARGIN_LEFT = 8;
+const MARGIN_RIGHT = -1;
 
 interface SelectedSlot {
   hour: number;
@@ -30,8 +35,21 @@ const ReserveRoom = () => {
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   const [selectionSlotActive, setSelectionSlotActive] = useState(false);
   const [showReservationPopup, setShowReservationPopup] = useState(false);
+  const [showEditPopup, setShowEditPopup] = useState(false);
+  const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [reservations, setReservations] = useState<Reservation[]>([]);
   const scrollViewRef = useRef<ScrollViewType>(null);
+  const [duration, setDuration] = useState(0);
+
+  // Load reservations when component mounts
+  useEffect(() => {
+    const loadReservations = async () => {
+      const storedReservations = await getReservations();
+      setReservations(storedReservations);
+    };
+    loadReservations();
+  }, []);
 
   // Update current time every minute
   useEffect(() => {
@@ -97,19 +115,81 @@ const ReserveRoom = () => {
   const handleTimeSlotPress = (hour: number, minute: number, dayIndex: number, date: Date, event: GestureResponderEvent) => {
     event.stopPropagation();
     
+    // Check if there's a reservation at this time slot
+    const existingReservation = reservations.find(res => 
+      isSameDay(res.date, date) && 
+      res.hour === hour && 
+      res.minute === minute
+    );
+
+    if (existingReservation) {
+      setSelectedReservation(existingReservation);
+      setShowEditPopup(true);
+      setShowReservationPopup(false);
+      return;
+    }
+
+    // If this is the same slot that's already selected, show the popup
     if (selectedSlot?.hour === hour && 
         selectedSlot?.minute === minute && 
         selectedSlot?.dayIndex === dayIndex) {
       setShowReservationPopup(true);
-    } else {
-      setSelectedSlot({ 
-        hour, 
-        minute, 
-        dayIndex, 
-        date,
-        duration: 30
-      });
-      setSelectionSlotActive(true);
+      setShowEditPopup(false);
+      return;
+    }
+
+    // Get all reservations for this day
+    const dayReservations = reservations.filter(res => isSameDay(res.date, date));
+    
+    console.log('All reservations for this day:', dayReservations.map(res => ({
+      hour: res.hour,
+      minute: res.minute,
+      duration: res.duration
+    })));
+
+    // Check if there's a reservation in the next 30 minutes
+    const nextReservation = dayReservations.find(res => {
+      const resStartTime = new Date(res.date);
+      resStartTime.setHours(res.hour, res.minute);
+      
+      const selectedTime = new Date(date);
+      selectedTime.setHours(hour, minute);
+      
+      const timeDiff = (resStartTime.getTime() - selectedTime.getTime()) / (1000 * 60);
+      
+      console.log(`Comparing with reservation at ${res.hour}:${res.minute}, time difference: ${timeDiff} minutes`);
+      
+      return timeDiff > 0 && timeDiff <= 30;
+    });
+
+    // Set duration based on next reservation
+    let duration = 60; // Default to 1 hour
+    
+    if (nextReservation) {
+      duration = 30; // If there's a reservation in the next 30 minutes
+    }
+
+    console.log(`Selected empty timeslot: ${hour}:${minute}`);
+    console.log(`Next reservation in 30min: ${nextReservation ? `Yes (at ${nextReservation.hour}:${nextReservation.minute})` : 'No'}`);
+    console.log(`Final duration set to: ${duration} minutes`);
+
+    // Select a new slot
+    const newSlot = { 
+      hour, 
+      minute, 
+      dayIndex, 
+      date,
+      duration
+    };
+    setSelectedSlot(newSlot);
+    setSelectionSlotActive(true);
+    setShowReservationPopup(false);
+    setShowEditPopup(false);
+  };
+
+  const handleSelectionBoxPress = () => {
+    if (selectedSlot) {
+      setShowReservationPopup(true);
     }
   };
 
@@ -119,79 +199,211 @@ const ReserveRoom = () => {
     setSelectionSlotActive(false);
   };
 
+  const handleSaveReservation = async (name: string, duration: number) => {
+    if (!selectedSlot) return;
+
+    const newReservation: Reservation = {
+      id: `${selectedSlot.date.getTime()}-${selectedSlot.hour}-${selectedSlot.minute}`,
+      date: selectedSlot.date,
+      hour: selectedSlot.hour,
+      minute: selectedSlot.minute,
+      duration,
+      name,
+    };
+
+    await saveReservation(newReservation);
+    setReservations(prev => [...prev, newReservation]);
+    handleClosePopup();
+  };
+
+  const handleDeleteReservation = async (id: string) => {
+    await deleteReservation(id);
+    setReservations(prev => prev.filter(res => res.id !== id));
+  };
+
+  const handleEditReservation = (reservation: Reservation) => {
+    setSelectedSlot({
+      hour: reservation.hour,
+      minute: reservation.minute,
+      dayIndex: reservation.date.getDay() - 1, // Convert to 0-based index (Monday = 0)
+      date: reservation.date,
+      duration: reservation.duration
+    });
+    setShowReservationPopup(true);
+  };
+
+  const handleCloseEditPopup = () => {
+    setShowEditPopup(false);
+    setSelectedReservation(null);
+  };
+
+  const getReservationStyle = (reservation: Reservation) => {
+    const reservationStart = new Date(reservation.date);
+    reservationStart.setHours(reservation.hour, reservation.minute);
+    
+    const reservationEnd = new Date(reservationStart);
+    reservationEnd.setMinutes(reservationEnd.getMinutes() + reservation.duration);
+
+    if (isBefore(reservationEnd, currentTime)) {
+      return styles.pastReservation;
+    } else if (isBefore(reservationStart, currentTime) && isAfter(reservationEnd, currentTime)) {
+      return styles.currentReservation;
+    } else {
+      return styles.futureReservation;
+    }
+  };
+
   const renderTimeGrid = () => {
     const hours = [];
     for (let i = 8; i <= 20; i++) {
+      // Full hour slot
       const hourSlot = (
         <View key={`hour-${i}`} style={styles.timeGridRow}>
           {Array(5).fill(null).map((_, dayIndex) => {
             const day = addDays(weekStart, dayIndex);
+            const reservationsForSlot = reservations.filter(res => 
+              isSameDay(res.date, day) && 
+              res.hour === i && 
+              res.minute === 0
+            );
+
             return (
-              <TouchableOpacity
+              <View
                 key={`hour-${i}-day-${dayIndex}`}
                 style={styles.timeGridSlot}
-                onPress={(event) => handleTimeSlotPress(i, 0, dayIndex, day, event)}
-                activeOpacity={0.6}
               >
                 <View style={styles.timeGridSlotContent}>
+                  {reservationsForSlot.map(reservation => (
+                    <TouchableOpacity
+                      key={reservation.id}
+                      style={[
+                        styles.reservationSlot,
+                        getReservationStyle(reservation),
+                        { height: (reservation.duration / 30) * TIME_GRID_HEIGHT }
+                      ]}
+                      onPress={(event) => handleTimeSlotPress(
+                        reservation.hour,
+                        reservation.minute,
+                        dayIndex,
+                        day,
+                        event
+                      )}
+                      activeOpacity={0.6}
+                    >
+                      <Text style={styles.reservationText}>{reservation.name}</Text>
+                    </TouchableOpacity>
+                  ))}
                   {selectedSlot?.hour === i && 
                    selectedSlot?.minute === 0 &&
                    selectedSlot?.dayIndex === dayIndex && (
-                    <View style={styles.selectedSlotContainer}>
+                    <TouchableOpacity
+                      style={styles.selectedSlotContainer}
+                      onPress={handleSelectionBoxPress}
+                      activeOpacity={0.6}
+                    >
                       <View 
                         style={[
                           styles.selectedTimeSlot,
-                          { height: (selectedSlot.duration / 30) * TIME_GRID_HEIGHT }
+                          { 
+                            height: TIME_GRID_HEIGHT * (selectedSlot.duration / 30)
+                          }
                         ]} 
-                      />
-                      <View style={styles.selectionBox}>
-                        <Text style={styles.plusSign}>+</Text>
+                      >
+                        <View style={styles.plusSignContainer}>
+                          <Text style={styles.plusSign}>+</Text>
+                        </View>
                       </View>
-                    </View>
+                    </TouchableOpacity>
+                  )}
+                  {reservationsForSlot.length === 0 && (
+                    <TouchableOpacity
+                      style={styles.emptySlotTouchable}
+                      onPress={(event) => handleTimeSlotPress(i, 0, dayIndex, day, event)}
+                      activeOpacity={0.6}
+                    />
                   )}
                 </View>
-              </TouchableOpacity>
+              </View>
             );
           })}
         </View>
       );
 
+      // Half hour slot
       const halfHourSlot = (
         <View key={`half-hour-${i}`} style={styles.timeGridRow}>
           {Array(5).fill(null).map((_, dayIndex) => {
             const day = addDays(weekStart, dayIndex);
+            const reservationsForSlot = reservations.filter(res => 
+              isSameDay(res.date, day) && 
+              res.hour === i && 
+              res.minute === 30
+            );
+
             return (
-              <TouchableOpacity
+              <View
                 key={`half-hour-${i}-day-${dayIndex}`}
                 style={styles.timeGridSlot}
-                onPress={(event) => handleTimeSlotPress(i, 30, dayIndex, day, event)}
-                activeOpacity={0.6}
               >
                 <View style={styles.timeGridSlotContent}>
+                  {reservationsForSlot.map(reservation => (
+                    <TouchableOpacity
+                      key={reservation.id}
+                      style={[
+                        styles.reservationSlot,
+                        getReservationStyle(reservation),
+                        { height: (reservation.duration / 30) * TIME_GRID_HEIGHT }
+                      ]}
+                      onPress={(event) => handleTimeSlotPress(
+                        reservation.hour,
+                        reservation.minute,
+                        dayIndex,
+                        day,
+                        event
+                      )}
+                      activeOpacity={0.6}
+                    >
+                      <Text style={styles.reservationText}>{reservation.name}</Text>
+                    </TouchableOpacity>
+                  ))}
                   {selectedSlot?.hour === i && 
                    selectedSlot?.minute === 30 && 
                    selectedSlot?.dayIndex === dayIndex && (
-                    <View style={styles.selectedSlotContainer}>
+                    <TouchableOpacity
+                      style={styles.selectedSlotContainer}
+                      onPress={handleSelectionBoxPress}
+                      activeOpacity={0.6}
+                    >
                       <View 
                         style={[
                           styles.selectedTimeSlot,
-                          { height: (selectedSlot.duration / 30) * TIME_GRID_HEIGHT }
+                          { 
+                            height: TIME_GRID_HEIGHT * (selectedSlot.duration / 30)
+                          }
                         ]} 
-                      />
-                      <View style={styles.selectionBox}>
-                        <Text style={styles.plusSign}>+</Text>
+                      >
+                        <View style={styles.plusSignContainer}>
+                          <Text style={styles.plusSign}>+</Text>
+                        </View>
                       </View>
-                    </View>
+                    </TouchableOpacity>
+                  )}
+                  {reservationsForSlot.length === 0 && (
+                    <TouchableOpacity
+                      style={styles.emptySlotTouchable}
+                      onPress={(event) => handleTimeSlotPress(i, 30, dayIndex, day, event)}
+                      activeOpacity={0.6}
+                    />
                   )}
                 </View>
-              </TouchableOpacity>
+              </View>
             );
           })}
         </View>
       );
 
-      hours.push(hourSlot);
-      hours.push(halfHourSlot);
+      // Push both slots at once
+      hours.push(hourSlot, halfHourSlot);
     }
     return hours;
   };
@@ -296,7 +508,23 @@ const ReserveRoom = () => {
         <ReservationPopup
           selectedSlot={selectedSlot}
           onClose={handleClosePopup}
+          onSave={handleSaveReservation}
           visible={showReservationPopup}
+          initialDuration={selectedSlot.duration}
+          reservations={reservations}
+          onDurationChange={(newDuration) => {
+            setSelectedSlot(prev => prev ? { ...prev, duration: newDuration } : null);
+          }}
+        />
+      )}
+
+      {selectedReservation && (
+        <ReservationEditPopup
+          reservation={selectedReservation}
+          onClose={handleCloseEditPopup}
+          onDelete={handleDeleteReservation}
+          onEdit={handleEditReservation}
+          visible={showEditPopup}
         />
       )}
     </View>
@@ -399,6 +627,16 @@ const styles = StyleSheet.create({
     width: 40,
     borderRightWidth: 1,
     borderRightColor: '#e0e0e0',
+    marginTop: -18,
+  },
+  timeSlot: {
+    height: TIME_GRID_HEIGHT,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    // backgroundColor: 'red',
+    // borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingRight: 5,
   },
   timeGridContainer: {
     position: 'absolute',
@@ -412,6 +650,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    height: TIME_GRID_HEIGHT,
   },
   timeGridSlot: {
     flex: 1,
@@ -420,26 +659,24 @@ const styles = StyleSheet.create({
     borderRightColor: '#e0e0e0',
     position: 'relative',
   },
+  
   timeGridSlotContent: {
-    flex: 1,
+    height: TIME_GRID_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
   },
-  timeSlot: {
-    height: TIME_GRID_HEIGHT,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingRight: 5,
-  },
+
   timeTextBig: {
     fontSize: 20,
     color: 'black',
     fontWeight: 'bold',
+    lineHeight: TIME_GRID_HEIGHT,
   },
   timeText: {
     fontSize: 12,
     color: 'gray',
+    lineHeight: TIME_GRID_HEIGHT,
   },
   daysContainer: {
     flexDirection: 'row',
@@ -454,12 +691,14 @@ const styles = StyleSheet.create({
   selectedTimeSlot: {
     position: 'absolute',
     top: 0,
-    left: 0,
-    right: 0,
+    left: MARGIN_LEFT,
+    right: MARGIN_RIGHT,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
     borderColor: '#4e5bf2',
     borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   selectedSlotContainer: {
     position: 'absolute',
@@ -469,8 +708,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 3,
   },
-  selectionBox: {
+  plusSignContainer: {
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -492,7 +732,7 @@ const styles = StyleSheet.create({
     height: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    zIndex: 3,
+    zIndex: 4,
     pointerEvents: 'none',
   },
   currentTimeDot: {
@@ -518,6 +758,44 @@ const styles = StyleSheet.create({
   },
   todayButtonTextActive: {
     color: 'white',
+  },
+  reservationSlot: {
+    position: 'absolute',
+    top: 0,
+    left: MARGIN_LEFT,
+    right: MARGIN_RIGHT,
+    borderWidth: 1,
+    borderColor: '#4e5bf2',
+    borderRadius: 8,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  reservationText: {
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
+  },
+  pastReservation: {
+    backgroundColor: '#f0f0f0',
+    borderColor: '#999',
+  },
+  currentReservation: {
+    backgroundColor: '#e6f5e6',
+    borderColor: '#4CAF50',
+  },
+  futureReservation: {
+    backgroundColor: '#e6e9ff',
+    borderColor: '#4e5bf2',
+  },
+  emptySlotTouchable: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
   },
 });
 

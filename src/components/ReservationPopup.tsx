@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, StatusBar, Platform, TextInput } from 'react-native';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import type { Reservation } from '../types/reservation';
 
 interface ReservationPopupProps {
   selectedSlot: {
@@ -10,16 +11,70 @@ interface ReservationPopupProps {
     minute: number;
   };
   onClose: () => void;
+  onSave: (name: string, duration: number) => void;
   visible: boolean;
+  initialDuration: number;
+  reservations: Reservation[];
+  onDurationChange: (duration: number) => void;
 }
 
 type DurationFormat = 
   | { number: string; unit: string }
   | { hours: { number: string; unit: string }; minutes: { number: string; unit: string } };
 
-const ReservationPopup: React.FC<ReservationPopupProps> = ({ selectedSlot, onClose, visible }) => {
-  const [duration, setDuration] = useState(30); // Duration in minutes
+const ReservationPopup: React.FC<ReservationPopupProps> = ({ 
+  selectedSlot, 
+  onClose, 
+  visible, 
+  onSave,
+  initialDuration,
+  reservations,
+  onDurationChange
+}) => {
+  const [duration, setDuration] = useState(initialDuration);
+  const [name, setName] = useState('');
   const inputRef = useRef<TextInput>(null);
+  const [showWarning, setShowWarning] = useState(false);
+  const [nextReservationTime, setNextReservationTime] = useState<string>('');
+
+  // Reset duration when popup becomes visible
+  useEffect(() => {
+    if (visible) {
+      setDuration(initialDuration);
+    }
+  }, [visible, initialDuration]);
+
+  // Calculate maximum allowed duration based on existing reservations
+  const getMaxDuration = () => {
+    if (!selectedSlot) return 30;
+
+    const selectedTime = new Date(selectedSlot.date);
+    selectedTime.setHours(selectedSlot.hour, selectedSlot.minute);
+
+    // Find the next reservation after the selected time
+    const nextReservation = reservations
+      .filter(res => isSameDay(res.date, selectedSlot.date))
+      .sort((a, b) => {
+        const timeA = new Date(a.date);
+        timeA.setHours(a.hour, a.minute);
+        const timeB = new Date(b.date);
+        timeB.setHours(b.hour, b.minute);
+        return timeA.getTime() - timeB.getTime();
+      })
+      .find(res => {
+        const resTime = new Date(res.date);
+        resTime.setHours(res.hour, res.minute);
+        return resTime.getTime() > selectedTime.getTime();
+      });
+
+    if (!nextReservation) return 240; // Max 4 hours if no next reservation
+
+    const nextResTime = new Date(nextReservation.date);
+    nextResTime.setHours(nextReservation.hour, nextReservation.minute);
+    const timeDiff = (nextResTime.getTime() - selectedTime.getTime()) / (1000 * 60); // in minutes
+
+    return Math.min(timeDiff, 240); // Max 4 hours
+  };
 
   const formatDuration = (minutes: number): DurationFormat => {
     const hours = Math.floor(minutes / 60);
@@ -34,8 +89,36 @@ const ReservationPopup: React.FC<ReservationPopupProps> = ({ selectedSlot, onClo
 
   const handleDurationChange = (increment: number) => {
     const newDuration = duration + increment;
-    if (newDuration >= 30 && newDuration <= 240) { // Limit between 30min and 4 hours
+    const maxDuration = getMaxDuration();
+    
+    if (newDuration >= 30 && newDuration <= maxDuration) {
       setDuration(newDuration);
+      onDurationChange(newDuration);
+      setShowWarning(false);
+    } else if (newDuration > maxDuration) {
+      // Find the next reservation time
+      const nextRes = reservations
+        .filter(res => isSameDay(res.date, selectedSlot.date))
+        .sort((a, b) => {
+          const timeA = new Date(a.date);
+          timeA.setHours(a.hour, a.minute);
+          const timeB = new Date(b.date);
+          timeB.setHours(b.hour, b.minute);
+          return timeA.getTime() - timeB.getTime();
+        })
+        .find(res => {
+          const resTime = new Date(res.date);
+          resTime.setHours(res.hour, res.minute);
+          const selectedTime = new Date(selectedSlot.date);
+          selectedTime.setHours(selectedSlot.hour, selectedSlot.minute);
+          return resTime.getTime() > selectedTime.getTime();
+        });
+
+      if (nextRes) {
+        const timeStr = `${nextRes.hour}:${nextRes.minute === 0 ? '00' : '30'}`;
+        setNextReservationTime(timeStr);
+      }
+      setShowWarning(true);
     }
   };
 
@@ -95,6 +178,12 @@ const ReservationPopup: React.FC<ReservationPopupProps> = ({ selectedSlot, onClo
     };
   }, [visible]);
   
+  const handleConfirm = () => {
+    if (name.trim()) {
+      onSave(name, duration);
+    }
+  };
+
   return (
     <Modal
       transparent={true}
@@ -153,6 +242,15 @@ const ReservationPopup: React.FC<ReservationPopupProps> = ({ selectedSlot, onClo
                   <Text style={styles.durationButtonText}>+</Text>
                 </TouchableOpacity>
               </View>
+              {showWarning && (
+                <View style={styles.warningContainer}>
+                  <Text style={styles.durationWarningText}>
+                    {duration === 240 
+                      ? "최대 예약 시간은 4시간 입니다"
+                      : `${nextReservationTime} 회의 예약으로 현재 최대 시간임`}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.popupContentLine}>
@@ -162,25 +260,35 @@ const ReservationPopup: React.FC<ReservationPopupProps> = ({ selectedSlot, onClo
                 </Text>
                 <TextInput
                   ref={inputRef}
-                  style={styles.popupTextInput}
+                  style={[
+                    styles.popupTextInput,
+                    name ? styles.popupTextInputActive : null
+                  ]}
                   placeholder="이름을 입력해주세요"
+                  placeholderTextColor="#ADD8E6"
                   returnKeyType="done"
                   keyboardType="default"
                   textContentType="name"
                   autoCapitalize="none"
+                  value={name}
+                  onChangeText={setName}
+                  underlineColorAndroid="transparent"
                 />
               </View>
             </View>
 
             <View style={styles.popupFooter}>
-               <TouchableOpacity style={styles.popupFooterButton} onPress={onClose} >
+              <TouchableOpacity style={styles.popupFooterButton} onPress={onClose}>
                 <Text style={styles.closeButtonText}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.popupFooterButton} onPress={onClose}>
+              <TouchableOpacity 
+                style={[styles.popupFooterButton, !name.trim() && styles.disabledButton]} 
+                onPress={handleConfirm}
+                disabled={!name.trim()}
+              >
                 <Text style={styles.confirmButtonText}>예약</Text>
               </TouchableOpacity>
             </View>
-    
           </TouchableOpacity>
         </TouchableOpacity>
       </View>
@@ -196,7 +304,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   androidOverlay: {
-    marginTop: -StatusBar.currentHeight,
+    marginTop: -(StatusBar.currentHeight || 0),
   },
   fullScreenTouchable: {
     flex: 1,
@@ -293,6 +401,20 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 2,
   },
+  warningContainer: {
+    position: 'absolute',
+    bottom: -20,
+    right: 10,
+    width: 220,
+    alignItems: 'center',
+    // backgroundColor: '#ff000082',
+  },
+  durationWarningText: {
+    color: 'blue',
+    fontSize: 12,
+    // backgroundColor: '#ffff005c',
+    textAlign: 'center',
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -306,6 +428,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     textAlign: 'right',
     paddingRight: 50,
+    color: '#ADD8E6',
+    fontSize: 18,
+  },
+  popupTextInputActive: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'black',
   },
   popupFooter: {
     width: '100%',
@@ -329,6 +458,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: 'black',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });
 
