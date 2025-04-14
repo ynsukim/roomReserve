@@ -87,9 +87,72 @@ export const getReservations = async (): Promise<Reservation[]> => {
       
       return migratedReservations;
     }
+  
+    // Create data that looks like it was created by the app
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDate = now.getDate();
     
-    // If no reservations exist, return an empty array
-    return [];
+    // Calculate dates relative to today
+    const yesterday = new Date(currentYear, currentMonth, currentDate - 1);
+    const tomorrow = new Date(currentYear, currentMonth, currentDate + 1);
+    const nextWeek = new Date(currentYear, currentMonth, currentDate + 7);
+    const lastWeek = new Date(currentYear, currentMonth, currentDate - 7);
+    
+    const initialData: Reservation[] = [
+      {
+        id: `${currentYear}${(currentMonth+1).toString().padStart(2, '0')}${(currentDate-1).toString().padStart(2, '0')}0900-${Date.now() - 259200000}`,
+        date: yesterday,
+        hour: 9,
+        minute: 0,
+        duration: 60,
+        name: '김영수',
+      },
+      {
+        id: `${currentYear}${(currentMonth+1).toString().padStart(2, '0')}${(currentDate-1).toString().padStart(2, '0')}1430-${Date.now() - 229200000}`,
+        date: yesterday,
+        hour: 14,
+        minute: 30,
+        duration: 90,
+        name: '이지은',
+      },
+      {
+        id: `${currentYear}${(currentMonth+1).toString().padStart(2, '0')}${currentDate.toString().padStart(2, '0')}1100-${Date.now() - 172800000}`,
+        date: now,
+        hour: 11,
+        minute: 0,
+        duration: 60,
+        name: '박준호',
+      },
+      {
+        id: `${currentYear}${(currentMonth+1).toString().padStart(2, '0')}${currentDate.toString().padStart(2, '0')}1530-${Date.now() - 158800000}`,
+        date: now,
+        hour: 15,
+        minute: 30,
+        duration: 30,
+        name: '한서연',
+      },
+      {
+        id: `${currentYear}${(currentMonth+1).toString().padStart(2, '0')}${(currentDate+1).toString().padStart(2, '0')}1000-${Date.now() - 86400000}`,
+        date: tomorrow,
+        hour: 10,
+        minute: 0,
+        duration: 120,
+        name: '정현우',
+      },
+      {
+        id: `${currentYear}${(currentMonth+1).toString().padStart(2, '0')}${(currentDate+7).toString().padStart(2, '0')}1330-${Date.now() - 50400000}`,
+        date: nextWeek,
+        hour: 13,
+        minute: 30,
+        duration: 60,
+        name: '최민지',
+      }
+    ];
+    
+    await AsyncStorage.setItem(RESERVATION_STORAGE_KEY, JSON.stringify(initialData));
+    return initialData;
   } catch (error) {
     console.error('Error getting reservations:', error);
     return [];
