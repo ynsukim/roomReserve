@@ -26,7 +26,9 @@ interface SelectedSlot {
   hour: number;
   minute: number;
   dayIndex: number;
-  date: Date;
+  year: number;
+  month: number;
+  day: number;
   duration: number;
   name?: string;
 }
@@ -205,7 +207,9 @@ const ReserveRoom = () => {
 
     // Check if there's already a reservation at this time
     const existingReservation = reservations.find(res => 
-      isSameDay(res.date, selectedSlot.date) &&
+      res.year === selectedSlot.year &&
+      res.month === selectedSlot.month &&
+      res.day === selectedSlot.day &&
       res.hour === selectedSlot.hour &&
       res.minute === selectedSlot.minute
     );
@@ -231,7 +235,9 @@ const ReserveRoom = () => {
       // Create a new reservation and let the storage service handle ID generation
       const newReservation: Reservation = {
         id: '', // This will be set by the storage service
-        date: selectedSlot.date,
+        year: selectedSlot.year,
+        month: selectedSlot.month,
+        day: selectedSlot.day,
         hour: selectedSlot.hour,
         minute: selectedSlot.minute,
         duration,
