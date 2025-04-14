@@ -5,53 +5,55 @@ import { startOfWeek, addDays, isSameDay } from 'date-fns';
 const RESERVATION_STORAGE_KEY = '@reservations';
 
 const getSampleReservations = (): Reservation[] => {
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 }); // Monday
   const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
   
+  // Use actual calendar dates for sample data
   return [
     {
-      id: '2402151000-1',
-      date: addDays(weekStart, 0), // Monday
+      id: `${year}${(month+1).toString().padStart(2, '0')}15${10}00-1`,
+      date: new Date(year, month, 15, 10, 0), // 15일 10:00
       hour: 10,
       minute: 0,
       duration: 60,
       name: '김영수',
     },
     {
-      id: '2402151430-2',
-      date: addDays(weekStart, 0), // Monday
+      id: `${year}${(month+1).toString().padStart(2, '0')}15${14}30-2`,
+      date: new Date(year, month, 15, 14, 30), // 15일 14:30
       hour: 14,
       minute: 30,
       duration: 90,
       name: '이지은',
     },
     {
-      id: '2402160900-3',
-      date: addDays(weekStart, 1), // Tuesday
+      id: `${year}${(month+1).toString().padStart(2, '0')}16${9}00-3`,
+      date: new Date(year, month, 16, 9, 0), // 16일 9:00
       hour: 9,
       minute: 0,
       duration: 120,
       name: '박준호',
     },
     {
-      id: '2402171100-4',
-      date: addDays(weekStart, 2), // Wednesday
+      id: `${year}${(month+1).toString().padStart(2, '0')}17${11}00-4`,
+      date: new Date(year, month, 17, 11, 0), // 17일 11:00
       hour: 11,
       minute: 0,
       duration: 30,
       name: '최민지',
     },
     {
-      id: '2402181500-5',
-      date: addDays(weekStart, 3), // Thursday
+      id: `${year}${(month+1).toString().padStart(2, '0')}18${15}00-5`,
+      date: new Date(year, month, 18, 15, 0), // 18일 15:00
       hour: 15,
       minute: 0,
       duration: 60,
       name: '정현우',
     },
     {
-      id: '2402191330-6',
-      date: addDays(weekStart, 4), // Friday
+      id: `${year}${(month+1).toString().padStart(2, '0')}19${13}30-6`,
+      date: new Date(year, month, 19, 13, 30), // 19일 13:30
       hour: 13,
       minute: 30,
       duration: 90,
@@ -63,9 +65,9 @@ const getSampleReservations = (): Reservation[] => {
 const migrateReservationIds = (reservations: Reservation[]): Reservation[] => {
   return reservations.map(reservation => {
     // Check if the ID has the old format (contains hyphens)
-    if (reservation.id.includes('-')) {
+    if (reservation.id.includes('-') && !reservation.id.includes('-2')) {
       const date = reservation.date;
-      const year = date.getFullYear().toString().slice(-2);
+      const year = date.getFullYear();
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const day = date.getDate().toString().padStart(2, '0');
       const hour = reservation.hour.toString().padStart(2, '0');
@@ -73,7 +75,7 @@ const migrateReservationIds = (reservations: Reservation[]): Reservation[] => {
       
       return {
         ...reservation,
-        id: `${year}${month}${day}${hour}${minute}`
+        id: `${year}${month}${day}${hour}${minute}-${Date.now()}`
       };
     }
     return reservation;
@@ -101,9 +103,9 @@ export const saveReservation = async (reservation: Reservation) => {
         id: existingReservations[existingIndex].id
       };
     } else {
-      // Add new reservation with a unique ID
+      // Add new reservation with a unique ID based on actual date
       const date = reservation.date;
-      const year = date.getFullYear().toString().slice(-2);
+      const year = date.getFullYear();
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const day = date.getDate().toString().padStart(2, '0');
       const hour = reservation.hour.toString().padStart(2, '0');
