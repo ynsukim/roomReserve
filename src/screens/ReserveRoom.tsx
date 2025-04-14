@@ -225,7 +225,7 @@ const ReserveRoom = () => {
               >
                 <View style={styles.timeGridSlotContent}>
                   {selectedSlot?.hour === i && 
-                   selectedSlot?.minute === 0 && 
+                   selectedSlot?.minute === 0 &&
                    selectedSlot?.dayIndex === dayIndex && 
                    !isReserved && (
                     <View style={styles.selectedSlotContainer}>
