@@ -1,89 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
-  PanResponder,
   GestureResponderEvent,
-  PanResponderGestureState,
-  Pressable
 } from 'react-native';
 import type {
-  ViewStyle,
-  TextStyle,
   ScrollView as ScrollViewType,
-  TouchableOpacity as TouchableOpacityType,
 } from 'react-native';
 import { format, addDays, startOfWeek, addWeeks, subWeeks, isSameDay, isWeekend, isSameWeek } from 'date-fns';
-import { reservations } from '../data/reservations.js';
-import { ReservationProps, initialReservations } from '../data/reservations';
 import ReservationPopup from '../components/ReservationPopup';
+
+// Constants
+const TIME_GRID_HEIGHT = 30;
+const SCROLL_VIEW_HEIGHT = 500;
 
 interface SelectedSlot {
   hour: number;
   minute: number;
   dayIndex: number;
   date: Date;
-  duration: number; // in minutes
+  duration: number;
 }
 
 const ReserveRoom = () => {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [weekStart, setWeekStart] = useState(startOfWeek(currentDate, { weekStartsOn: 1 }));
-  const [reservations, setReservations] = useState<ReservationProps[]>(initialReservations);
+  const [weekStart, setWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   const [selectionSlotActive, setSelectionSlotActive] = useState(false);
   const [showReservationPopup, setShowReservationPopup] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const scrollViewRef = React.useRef<ScrollViewType>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStartY, setDragStartY] = useState(0);
-  const lastTouchY = React.useRef(0);
-  const [isPressed, setIsPressed] = useState(false);
-
-  const handleTouchStart = (e: GestureResponderEvent) => {
-    console.log('🔴 Touch Start on drag handle');
-    setIsDragging(true);
-    setIsPressed(true);
-    lastTouchY.current = e.nativeEvent.pageY;
-  };
-
-  const handleTouchMove = (e: GestureResponderEvent) => {
-    if (!isDragging || !selectedSlot) return;
-    
-    const touchY = e.nativeEvent.pageY;
-    const deltaY = touchY - lastTouchY.current;
-    const additionalSlots = Math.round(deltaY / 60);
-    const newDuration = Math.max(30, Math.min(240, selectedSlot.duration + (additionalSlots * 30)));
-
-    console.log('🔴 Drag handle moved - New Duration:', newDuration);
-
-    setSelectedSlot(prev => prev ? {
-      ...prev,
-      duration: newDuration
-    } : null);
-
-    lastTouchY.current = touchY;
-  };
-
-  const handleTouchEnd = () => {
-    console.log('🔴 Touch End on drag handle');
-    setIsDragging(false);
-    setIsPressed(false);
-  };
-
-  useEffect(() => {
-    console.log('Scroll enabled state changed:', !isDragging);
-  }, [isDragging]);
+  const scrollViewRef = useRef<ScrollViewType>(null);
 
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
-    }, 60000); // Update every minute
+    }, 60000);
 
     return () => clearInterval(timer);
   }, []);
@@ -94,16 +48,10 @@ const ReserveRoom = () => {
     const minutes = currentTime.getMinutes();
     const today = new Date();
     
-    // Only scroll if we're in the current week and within business hours
     if (hour >= 8 && hour <= 20 && isSameWeek(today, weekStart, { weekStartsOn: 1 })) {
-      // Calculate scroll position
-      const scrollPosition = ((hour - 8) * 120) + (minutes * 2);
-      // Get ScrollView height (assuming it's about 500px)
-      const scrollViewHeight = 500;
-      // Center the current time by subtracting half of the ScrollView height
-      const centerPosition = Math.max(0, scrollPosition - scrollViewHeight / 2);
+      const scrollPosition = ((hour - 8) * TIME_GRID_HEIGHT * 2) + (minutes * (TIME_GRID_HEIGHT / 30));
+      const centerPosition = Math.max(0, scrollPosition - SCROLL_VIEW_HEIGHT / 2);
       
-      // Add small delay to ensure layout is complete
       setTimeout(() => {
         scrollViewRef.current?.scrollTo({
           y: centerPosition,
@@ -113,19 +61,9 @@ const ReserveRoom = () => {
     }
   }, [weekStart, currentTime]);
 
-  const goToPreviousWeek = () => {
-    const newWeekStart = subWeeks(weekStart, 1);
-    setWeekStart(newWeekStart);
-  };
-
-  const goToNextWeek = () => {
-    const newWeekStart = addWeeks(weekStart, 1);
-    setWeekStart(newWeekStart);
-  };
-
-  const goToToday = () => {
-    setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
-  };
+  const goToPreviousWeek = () => setWeekStart(prev => subWeeks(prev, 1));
+  const goToNextWeek = () => setWeekStart(prev => addWeeks(prev, 1));
+  const goToToday = () => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
 
   const renderTimeSlots = () => {
     const hours = [];
@@ -146,7 +84,6 @@ const ReserveRoom = () => {
 
   const renderDateRow = (day: Date, index: number) => {
     const isToday = isSameDay(day, new Date());
-
     return (
       <View style={styles.dateBlock} key={index}>
         <View style={[styles.dayHeader, isToday && styles.todayHeader]}>
@@ -155,27 +92,11 @@ const ReserveRoom = () => {
         </View>
       </View>
     );
-  }
- 
-  const isSlotReserved = (hour: number, minute: number, dayIndex: number) => {
-    const day = addDays(weekStart, dayIndex);
-    return reservations.some(res => {
-      const startHour = res.startTime.getHours();
-      const startMinute = res.startTime.getMinutes();
-      return isSameDay(res.startTime, day) && 
-             startHour === hour && 
-             startMinute === minute;
-    });
   };
 
   const handleTimeSlotPress = (hour: number, minute: number, dayIndex: number, date: Date, event: GestureResponderEvent) => {
     event.stopPropagation();
     
-    if (isSlotReserved(hour, minute, dayIndex)) {
-      console.log('Slot is already reserved');
-      return;
-    }
-
     if (selectedSlot?.hour === hour && 
         selectedSlot?.minute === minute && 
         selectedSlot?.dayIndex === dayIndex) {
@@ -186,16 +107,9 @@ const ReserveRoom = () => {
         minute, 
         dayIndex, 
         date,
-        duration: 30 // default duration
+        duration: 30
       });
       setSelectionSlotActive(true);
-    }
-  };
-
-  const handleOutsidePress = () => {
-    if (selectionSlotActive && !showReservationPopup) {
-      setSelectedSlot(null);
-      setSelectionSlotActive(false);
     }
   };
 
@@ -212,28 +126,22 @@ const ReserveRoom = () => {
         <View key={`hour-${i}`} style={styles.timeGridRow}>
           {Array(5).fill(null).map((_, dayIndex) => {
             const day = addDays(weekStart, dayIndex);
-            const isReserved = isSlotReserved(i, 0, dayIndex);
             return (
               <TouchableOpacity
                 key={`hour-${i}-day-${dayIndex}`}
-                style={[
-                  styles.timeGridSlot,
-                  isReserved && styles.reservedTimeSlot
-                ]}
+                style={styles.timeGridSlot}
                 onPress={(event) => handleTimeSlotPress(i, 0, dayIndex, day, event)}
-                activeOpacity={isReserved ? 1 : 0.6}
+                activeOpacity={0.6}
               >
                 <View style={styles.timeGridSlotContent}>
                   {selectedSlot?.hour === i && 
                    selectedSlot?.minute === 0 &&
-                   selectedSlot?.dayIndex === dayIndex && 
-                   !isReserved && (
+                   selectedSlot?.dayIndex === dayIndex && (
                     <View style={styles.selectedSlotContainer}>
                       <View 
                         style={[
                           styles.selectedTimeSlot,
-                          { height: (selectedSlot.duration / 30) * 60 },
-                          isPressed && styles.selectedTimeSlotPressed
+                          { height: (selectedSlot.duration / 30) * TIME_GRID_HEIGHT }
                         ]} 
                       />
                       <View style={styles.selectionBox}>
@@ -252,28 +160,22 @@ const ReserveRoom = () => {
         <View key={`half-hour-${i}`} style={styles.timeGridRow}>
           {Array(5).fill(null).map((_, dayIndex) => {
             const day = addDays(weekStart, dayIndex);
-            const isReserved = isSlotReserved(i, 30, dayIndex);
             return (
               <TouchableOpacity
                 key={`half-hour-${i}-day-${dayIndex}`}
-                style={[
-                  styles.timeGridSlot,
-                  isReserved && styles.reservedTimeSlot
-                ]}
+                style={styles.timeGridSlot}
                 onPress={(event) => handleTimeSlotPress(i, 30, dayIndex, day, event)}
-                activeOpacity={isReserved ? 1 : 0.6}
+                activeOpacity={0.6}
               >
                 <View style={styles.timeGridSlotContent}>
                   {selectedSlot?.hour === i && 
                    selectedSlot?.minute === 30 && 
-                   selectedSlot?.dayIndex === dayIndex && 
-                   !isReserved && (
+                   selectedSlot?.dayIndex === dayIndex && (
                     <View style={styles.selectedSlotContainer}>
                       <View 
                         style={[
                           styles.selectedTimeSlot,
-                          { height: (selectedSlot.duration / 30) * 60 },
-                          isPressed && styles.selectedTimeSlotPressed
+                          { height: (selectedSlot.duration / 30) * TIME_GRID_HEIGHT }
                         ]} 
                       />
                       <View style={styles.selectionBox}>
@@ -297,19 +199,9 @@ const ReserveRoom = () => {
   const renderCurrentTimeIndicator = () => {
     const hour = currentTime.getHours();
     const minutes = currentTime.getMinutes();
-    const top = ((hour - 8) * 120) + (minutes * 2);
+    const top = ((hour - 8) * TIME_GRID_HEIGHT * 2) + (minutes * (TIME_GRID_HEIGHT / 30));
 
-    console.log('=== Current Time Indicator Debug ===');
-    console.log('Current Time:', currentTime);
-    console.log('Hour:', hour);
-    console.log('Minutes:', minutes);
-    console.log('Calculated top position:', top);
-    console.log('Should render indicator:', hour >= 8 && hour <= 20);
-
-    if (hour < 8 || hour > 20) {
-      console.log('Not rendering indicator - outside business hours');
-      return null;
-    }
+    if (hour < 8 || hour > 20) return null;
 
     return (
       <View style={[styles.currentTimeContainer, { top }]}>
@@ -319,51 +211,15 @@ const ReserveRoom = () => {
     );
   };
 
-  const renderDayColumn = (day: Date, index: number) => {
-    const dayReservations = reservations.filter(res => 
-      isSameDay(res.startTime, day)
-    );
-
-    return (
-      <View style={styles.dayColumn} key={index}>
-        {dayReservations.map(reservation => {
-          const startHour = reservation.startTime.getHours();
-          const startMinutes = reservation.startTime.getMinutes();
-          const endHour = reservation.endTime.getHours();
-          const endMinutes = reservation.endTime.getMinutes();
-          
-          const startPosition = ((startHour - 8) * 120 + (startMinutes * 2)) + 4;
-          const duration = (endHour - startHour) * 120 + (endMinutes - startMinutes) * 2;
-          
-          return (
-            <View 
-              key={reservation.id}
-              style={[
-                styles.reservation,
-                {
-                  top: startPosition,
-                  height: duration
-                },
-                reservation.status === 'past' && styles.pastReservation,
-                reservation.status === 'current' && styles.currentReservation,
-                reservation.status === 'future' && styles.futureReservation,
-              ]}
-            >
-              <Text style={styles.reservationText}>{reservation.name}</Text>
-            </View>
-          );
-        })}
-        {isSameDay(day, new Date()) && renderCurrentTimeIndicator()}
-      </View>
-    );
-  };
+  const renderDayColumn = (day: Date, index: number) => (
+    <View style={styles.dayColumn} key={index}>
+      {isSameDay(day, new Date()) && renderCurrentTimeIndicator()}
+    </View>
+  );
 
   return (
-    <View 
-      style={styles.container} 
-    >
+    <View style={styles.container}>
       <View style={styles.container}>
-        {/* Top Bar */}
         <View style={styles.topBar}>
           <Text style={styles.dateRangeText}>
             {format(weekStart, 'MMMM').toUpperCase()} {format(weekStart, 'd')}-
@@ -372,10 +228,7 @@ const ReserveRoom = () => {
           <View style={styles.topBarButtons}>
             <TouchableOpacity 
               style={styles.navButton} 
-              onPress={() => {
-                console.log('Previous week button pressed');
-                goToPreviousWeek();
-              }}
+              onPress={goToPreviousWeek}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.navButtonText}>{'<'}</Text>
@@ -383,25 +236,19 @@ const ReserveRoom = () => {
             <TouchableOpacity 
               style={[
                 styles.todayButton,
-                !isSameWeek(currentDate, weekStart) && styles.todayButtonActive
+                !isSameWeek(new Date(), weekStart) && styles.todayButtonActive
               ]} 
-              onPress={() => {
-                console.log('Today button pressed');
-                goToToday();
-              }}
+              onPress={goToToday}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={[
                 styles.todayButtonText,
-                !isSameWeek(currentDate, weekStart) && styles.todayButtonTextActive
+                !isSameWeek(new Date(), weekStart) && styles.todayButtonTextActive
               ]}>T</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.navButton} 
-              onPress={() => {
-                console.log('Next week button pressed');
-                goToNextWeek();
-              }}
+              onPress={goToNextWeek}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={styles.navButtonText}>{'>'}</Text>
@@ -413,7 +260,6 @@ const ReserveRoom = () => {
           <View style={styles.datesRowBar}>
             {Array(7).fill(null).map((_, index) => {
               const day = addDays(weekStart, index);
-              // Only render weekdays (Monday to Friday)
               if (!isWeekend(day)) {
                 return renderDateRow(day, index);
               }
@@ -423,8 +269,6 @@ const ReserveRoom = () => {
           <ScrollView 
             ref={scrollViewRef}
             style={styles.scrollView}
-            scrollEnabled={!isDragging}
-            onScrollBeginDrag={() => console.log('Scroll attempt detected')}
           >
             <View style={{flexDirection: 'row'}}>
               <View style={styles.timeColumn}>
@@ -437,11 +281,10 @@ const ReserveRoom = () => {
                 </View>
                 {Array(7).fill(null).map((_, index) => {
                   const day = addDays(weekStart, index);
-                  // Only render weekdays (Monday to Friday)
                   if (!isWeekend(day)) {
                     return renderDayColumn(day, index);
                   }
-                  return null; // Skip weekends
+                  return null;
                 })}
               </View>
             </View>
@@ -572,7 +415,7 @@ const styles = StyleSheet.create({
   },
   timeGridSlot: {
     flex: 1,
-    height: 60,
+    height: TIME_GRID_HEIGHT,
     borderRightWidth: 1,
     borderRightColor: '#e0e0e0',
     position: 'relative',
@@ -584,7 +427,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   timeSlot: {
-    height: 60,
+    height: TIME_GRID_HEIGHT,
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
     paddingRight: 5,
@@ -608,35 +451,24 @@ const styles = StyleSheet.create({
     borderRightColor: '#e0e0e0',
     position: 'relative',
   },
-  reservation: {
+  selectedTimeSlot: {
     position: 'absolute',
-    left: 2,
-    right: 2,
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#4e5bf2',
     borderRadius: 8,
-    padding: 20,
-    justifyContent: 'flex-start',
+  },
+  selectedSlotContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 2,
-  },
-  pastReservation: {
-    backgroundColor: '#f0f0f0',
-  },
-  currentReservation: {
-    backgroundColor: '#4e5bf2',
-  },
-  futureReservation: {
-    backgroundColor: 'skyblue',
-  },
-  reservationText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  todayButtonActive: {
-    backgroundColor: '#4e5bf2',
-  },
-  todayButtonTextActive: {
-    color: 'white',
   },
   selectionBox: {
     width: 24,
@@ -652,27 +484,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: 'white',
     lineHeight: 20,
-  },
-  selectedTimeSlot: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#4e5bf2',
-    borderRadius: 8,
-    margin: 6,
-  },
-  selectedTimeSlotPressed: {
-    backgroundColor: '#e0e0e0',
-  },
-  selectedSlotContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   currentTimeContainer: {
     position: 'absolute',
@@ -702,44 +513,11 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 4,
   },
-  dragHandle: {
-    position: 'absolute',
-    left: '50%',
-    marginLeft: -20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 0, 0, 0.7)',  // Even more visible for debugging
-    borderRadius: 16,
-    padding: 4,
-    elevation: 5,  // Android elevation
-    shadowColor: '#000',  // iOS shadow
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  dragHandleBar: {
-    width: 30,
-    height: 4,
+  todayButtonActive: {
     backgroundColor: '#4e5bf2',
-    borderRadius: 2,
-    marginBottom: 4,
   },
-  triangle: {
-    width: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderTopWidth: 10,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: '#4e5bf2',
+  todayButtonTextActive: {
+    color: 'white',
   },
 });
 
